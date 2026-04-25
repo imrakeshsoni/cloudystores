@@ -14,7 +14,7 @@ export const createDatabaseConfig = (
   migrations: [__dirname + '/../../../../tools/migrations/**/*.{ts,js}'],
   synchronize: false,
   logging: nodeEnv === 'development',
-  ssl: nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: process.env.DB_SSL === 'false' ? false : (nodeEnv === 'production' ? { rejectUnauthorized: false } : false),
   extra: {
     max: 20,
     idleTimeoutMillis: 30000,
