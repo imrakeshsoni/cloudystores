@@ -85,13 +85,19 @@ class DatabasePolicyBootstrapService implements OnModuleInit {
   constructor(private readonly dataSource: DataSource) {}
 
   async onModuleInit(): Promise<void> {
-    await this.ensureTenantRlsPolicies();
+    try {
+      await this.ensureTenantRlsPolicies();
+    } catch (err: unknown) {
+      // Non-fatal: tables may not exist yet (migrations pending). App can still start.
+      this.logger.warn(`RLS bootstrap skipped: ${(err as Error).message}`);
+    }
   }
 
   private async ensureTenantRlsPolicies(): Promise<void> {
     for (const table of TENANT_SCOPED_TABLES) {
       const policyName = `tenant_isolation_${table}`;
 
+      // Use $pol$ dollar-quoting for the EXECUTE argument to avoid manual quote escaping
       await this.dataSource.query(
         `
         DO $$
@@ -103,10 +109,10 @@ class DatabasePolicyBootstrapService implements OnModuleInit {
               AND tablename = '${table}'
               AND policyname = '${policyName}'
           ) THEN
-            EXECUTE 'CREATE POLICY ${policyName} ON public.${table}
+            EXECUTE $pol$CREATE POLICY ${policyName} ON public.${table}
               FOR ALL
-              USING (tenant_id = NULLIF(current_setting(''''app.current_tenant_id'''', true), '''')::uuid)
-              WITH CHECK (tenant_id = NULLIF(current_setting(''''app.current_tenant_id'''', true), '''')::uuid)';
+              USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+              WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)$pol$;
           END IF;
         END
         $$;
