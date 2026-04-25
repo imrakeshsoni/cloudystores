@@ -1,0 +1,155 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shoposphere_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: shoposphere
+      POSTGRES_PASSWORD: shoposphere
+      POSTGRES_DB: shoposphere
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tools/migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U shoposphere']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: shoposphere_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass shoposphere
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', 'shoposphere', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: shoposphere_mail
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: apps/auth-service/Dockerfile
+    container_name: shoposphere_auth
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://shoposphere:shoposphere@postgres:5432/shoposphere
+      REDIS_URL: redis://:shoposphere@redis:6379
+    ports:
+      - '3001:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  tenant-service:
+    build:
+      context: .
+      dockerfile: apps/tenant-service/Dockerfile
+    container_name: shoposphere_tenant
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3002
+      DATABASE_URL: postgresql://shoposphere:shoposphere@postgres:5432/shoposphere
+      REDIS_URL: redis://:shoposphere@redis:6379
+    ports:
+      - '3002:3002'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  core-api:
+    build:
+      context: .
+      dockerfile: apps/core-api/Dockerfile
+    container_name: shoposphere_core
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://shoposphere:shoposphere@postgres:5432/shoposphere
+      REDIS_URL: redis://:shoposphere@redis:6379
+    ports:
+      - '3003:3003'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  order-service:
+    build:
+      context: .
+      dockerfile: apps/order-service/Dockerfile
+    container_name: shoposphere_orders
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3007
+      DATABASE_URL: postgresql://shoposphere:shoposphere@postgres:5432/shoposphere
+      REDIS_URL: redis://:shoposphere@redis:6379
+    ports:
+      - '3007:3007'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  report-service:
+    build:
+      context: .
+      dockerfile: apps/report-service/Dockerfile
+    container_name: shoposphere_reports
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3008
+      DATABASE_URL: postgresql://shoposphere:shoposphere@postgres:5432/shoposphere
+      REDIS_URL: redis://:shoposphere@redis:6379
+    ports:
+      - '3008:3008'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: shoposphere_web
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:3003
+      VITE_AUTH_URL: http://localhost:3001
+    ports:
+      - '3000:80'
+    depends_on:
+      - core-api
+      - auth-service
+
+volumes:
+  postgres_data:
+  redis_data:

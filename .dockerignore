@@ -1,0 +1,10 @@
+node_modules
+.git
+.github
+.turbo
+frontend/dist
+apps/*/dist
+npm-debug.log
+coverage
+tmp
+*.local

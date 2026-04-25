@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Public = exports.RequirePermission = exports.PERMISSION_KEY = void 0;
+const common_1 = require("@nestjs/common");
+const permission_guard_1 = require("./permission.guard");
+exports.PERMISSION_KEY = 'required_permission';
+const RequirePermission = (resource, action) => (0, common_1.applyDecorators)((0, common_1.SetMetadata)(exports.PERMISSION_KEY, [resource, action]), (0, common_1.UseGuards)(permission_guard_1.PermissionGuard));
+exports.RequirePermission = RequirePermission;
+const Public = () => (0, common_1.SetMetadata)('is_public', true);
+exports.Public = Public;

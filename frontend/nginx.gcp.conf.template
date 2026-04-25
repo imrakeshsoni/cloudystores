@@ -1,0 +1,66 @@
+server {
+  listen 8080;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location /api/auth/ {
+    rewrite ^/api/auth/(.*)$ /v1/auth/$1 break;
+    proxy_pass ${AUTH_SERVICE_URL};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /api/tenant/ {
+    rewrite ^/api/tenant/(.*)$ /v1/$1 break;
+    proxy_pass ${TENANT_SERVICE_URL};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /api/core/ {
+    rewrite ^/api/core/(.*)$ /v1/$1 break;
+    proxy_pass ${CORE_API_URL};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /api/orders/ {
+    rewrite ^/api/orders/(.*)$ /v1/$1 break;
+    proxy_pass ${ORDER_SERVICE_URL};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /api/reports/ {
+    rewrite ^/api/reports/(.*)$ /v1/$1 break;
+    proxy_pass ${REPORT_SERVICE_URL};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+  }
+
+  add_header X-Frame-Options "SAMEORIGIN";
+  add_header X-Content-Type-Options "nosniff";
+  add_header X-XSS-Protection "1; mode=block";
+
+  gzip on;
+  gzip_types text/plain text/css application/json application/javascript text/javascript;
+}

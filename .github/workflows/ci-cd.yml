@@ -1,0 +1,200 @@
+name: CI / CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  GCP_REGION: asia-south1
+  ARTIFACT_REPOSITORY: shoposphere
+
+jobs:
+  test:
+    name: Test (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth-service, tenant-service, core-api, order-service, report-service]
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: shoposphere
+          POSTGRES_PASSWORD: shoposphere
+          POSTGRES_DB: shoposphere_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run DB migrations
+        env:
+          DATABASE_URL: postgresql://shoposphere:shoposphere@localhost:5432/shoposphere_test
+        run: |
+          cd tools/migrations
+          psql $DATABASE_URL -f init.sql || true
+          psql $DATABASE_URL -f 001_initial_schema.sql
+
+      - name: Lint
+        run: npx turbo run lint --filter=@shoposphere/${{ matrix.service }}
+
+      - name: Unit tests
+        env:
+          DATABASE_URL: postgresql://shoposphere:shoposphere@localhost:5432/shoposphere_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret
+          JWT_REFRESH_SECRET: test-refresh
+          NODE_ENV: test
+        run: npx turbo run test --filter=@shoposphere/${{ matrix.service }}
+
+  test-frontend:
+    name: Frontend Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx turbo run build --filter=@shoposphere/frontend
+      - run: npx turbo run lint --filter=@shoposphere/frontend
+
+  build-images:
+    name: Build Images In Cloud Build
+    needs: [test, test-frontend]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Submit build to Cloud Build
+        run: |
+          gcloud builds submit \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --config cloudbuild.gcp.yaml \
+            --substitutions "_REGION=${{ env.GCP_REGION }},_REPOSITORY=${{ env.ARTIFACT_REPOSITORY }}" \
+            .
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build-images
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency: staging
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy staging services
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ env.GCP_REGION }}
+          REPOSITORY: ${{ env.ARTIFACT_REPOSITORY }}
+          DB_INSTANCE: ${{ secrets.GCP_DB_INSTANCE }}
+          DB_NAME: ${{ secrets.GCP_DB_NAME }}
+          DB_USER: ${{ secrets.GCP_DB_USER }}
+          REDIS_HOST: ${{ secrets.GCP_REDIS_HOST }}
+          VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+        run: ./tools/deploy-gcp.sh
+
+      - name: Smoke tests
+        run: |
+          FRONTEND_URL="$(gcloud run services describe frontend --region "${{ env.GCP_REGION }}" --format='value(status.url)' --project "${{ secrets.GCP_PROJECT_ID }}")"
+          AUTH_URL="$(gcloud run services describe auth-service --region "${{ env.GCP_REGION }}" --format='value(status.url)' --project "${{ secrets.GCP_PROJECT_ID }}")"
+          curl -f "${AUTH_URL}/v1/auth/health"
+          curl -f "${FRONTEND_URL}"
+
+  deploy-prod:
+    name: Deploy to Production
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency: production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy production services
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ env.GCP_REGION }}
+          REPOSITORY: ${{ env.ARTIFACT_REPOSITORY }}
+          DB_INSTANCE: ${{ secrets.GCP_DB_INSTANCE }}
+          DB_NAME: ${{ secrets.GCP_DB_NAME }}
+          DB_USER: ${{ secrets.GCP_DB_USER }}
+          REDIS_HOST: ${{ secrets.GCP_REDIS_HOST }}
+          VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+        run: ./tools/deploy-gcp.sh
+
+      - name: Notify deployment
+        if: always()
+        run: echo "Production deployment status: ${{ job.status }}"
