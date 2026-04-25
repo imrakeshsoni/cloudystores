@@ -7,19 +7,31 @@ export const createDatabaseConfig = (
   extraEntities: Function[] = [],
   databaseUrl = process.env.DATABASE_URL,
   nodeEnv = process.env.NODE_ENV,
-): TypeOrmModuleOptions => ({
-  type: 'postgres',
-  url: databaseUrl,
-  entities: [__dirname + '/../**/*.entity{.ts,.js}', ...extraEntities],
-  migrations: [__dirname + '/../../../../tools/migrations/**/*.{ts,js}'],
-  synchronize: false,
-  logging: nodeEnv === 'development',
-  ssl: process.env.DB_SSL === 'false' ? false : (nodeEnv === 'production' ? { rejectUnauthorized: false } : false),
-  extra: {
-    max: 20,
-    idleTimeoutMillis: 30000,
-  },
-});
+): TypeOrmModuleOptions => {
+  // Resolve ${DB_PASSWORD} placeholder when Cloud Run injects it as a separate secret env var
+  const resolvedUrl = (databaseUrl ?? '').replace(
+    /\$\{DB_PASSWORD\}/g,
+    process.env.DB_PASSWORD ?? '',
+  );
+
+  // Unix socket connections (Cloud SQL Auth Proxy) don't support SSL negotiation
+  const isSocketConnection = resolvedUrl.includes('?host=/') || resolvedUrl.includes('host=/cloudsql/');
+  const sslDisabled = process.env.DB_SSL === 'false' || isSocketConnection;
+
+  return {
+    type: 'postgres',
+    url: resolvedUrl,
+    entities: [__dirname + '/../**/*.entity{.ts,.js}', ...extraEntities],
+    migrations: [__dirname + '/../../../../tools/migrations/**/*.{ts,js}'],
+    synchronize: false,
+    logging: nodeEnv === 'development',
+    ssl: sslDisabled ? false : (nodeEnv === 'production' ? { rejectUnauthorized: false } : false),
+    extra: {
+      max: 20,
+      idleTimeoutMillis: 30000,
+    },
+  };
+};
 
 const TENANT_SCOPED_TABLES = [
   'shops',
