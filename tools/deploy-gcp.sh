@@ -83,11 +83,11 @@ deploy_service() {
 }
 
 echo "Deploying backend services to Cloud Run..."
-deploy_service auth-service auth-service 3001 "PORT=3001"
-deploy_service tenant-service tenant-service 3002 "PORT=3002"
-deploy_service core-api core-api 3003 "PORT=3003"
-deploy_service order-service order-service 3007 "PORT=3007"
-deploy_service report-service report-service 3008 "PORT=3008"
+deploy_service auth-service auth-service 3001
+deploy_service tenant-service tenant-service 3002
+deploy_service core-api core-api 3003
+deploy_service order-service order-service 3007
+deploy_service report-service report-service 3008
 
 AUTH_URL="$(gcloud run services describe auth-service --region "${REGION}" --format='value(status.url)' --project "${PROJECT_ID}")"
 TENANT_URL="$(gcloud run services describe tenant-service --region "${REGION}" --format='value(status.url)' --project "${PROJECT_ID}")"
