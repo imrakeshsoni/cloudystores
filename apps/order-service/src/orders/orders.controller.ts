@@ -53,18 +53,6 @@ class PartialReturnOrderDto {
   items: PartialReturnItemDto[];
 }
 
-class ConvertQuotationDto {
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => PaymentDto)
-  payment?: PaymentDto;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  loyaltyPointsRedeemed?: number;
-}
-
 class PaymentDto {
   @IsString()
   method: string;
@@ -76,6 +64,18 @@ class PaymentDto {
   @IsOptional()
   @IsString()
   reference?: string;
+}
+
+class ConvertQuotationDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PaymentDto)
+  payment?: PaymentDto;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  loyaltyPointsRedeemed?: number;
 }
 
 @Controller('orders')
