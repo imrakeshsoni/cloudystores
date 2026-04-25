@@ -8,24 +8,49 @@ export const createDatabaseConfig = (
   databaseUrl = process.env.DATABASE_URL,
   nodeEnv = process.env.NODE_ENV,
 ): TypeOrmModuleOptions => {
-  // Resolve ${DB_PASSWORD} placeholder when Cloud Run injects it as a separate secret env var
-  const resolvedUrl = (databaseUrl ?? '').replace(
-    /\$\{DB_PASSWORD\}/g,
-    process.env.DB_PASSWORD ?? '',
-  );
+  const rawUrl = databaseUrl ?? '';
+  const injectedPassword = process.env.DB_PASSWORD;
 
-  // Unix socket connections (Cloud SQL Auth Proxy) don't support SSL negotiation
-  const isSocketConnection = resolvedUrl.includes('?host=/') || resolvedUrl.includes('host=/cloudsql/');
-  const sslDisabled = process.env.DB_SSL === 'false' || isSocketConnection;
+  // When DB_PASSWORD is injected (e.g. Cloud Run secret), parse URL components
+  // manually so we avoid URL-encoding issues and the pg "Invalid URL" empty-host bug.
+  if (injectedPassword !== undefined) {
+    // Extract ?host= param (Cloud SQL Auth Proxy socket path)
+    const hostParam = rawUrl.match(/[?&]host=([^&]+)/)?.[1];
+    const socketPath = hostParam ? decodeURIComponent(hostParam) : undefined;
 
+    // Extract username: postgresql://user:...@...
+    const username = rawUrl.match(/postgresql?:\/\/([^:@/]+)/)?.[1] ?? 'shoposphere';
+
+    // Extract database name: last path segment before ?
+    const database = rawUrl.match(/\/([^/?]+)(?:\?|$)/)?.[1] ?? 'shoposphere';
+
+    return {
+      type: 'postgres',
+      host: socketPath ?? 'localhost',
+      username,
+      password: injectedPassword,
+      database,
+      entities: [__dirname + '/../**/*.entity{.ts,.js}', ...extraEntities],
+      migrations: [__dirname + '/../../../../tools/migrations/**/*.{ts,js}'],
+      synchronize: false,
+      logging: nodeEnv === 'development',
+      ssl: false, // Unix sockets and Cloud SQL proxy don't support SSL negotiation
+      extra: {
+        max: 20,
+        idleTimeoutMillis: 30000,
+      },
+    };
+  }
+
+  // Local dev: use DATABASE_URL as-is
   return {
     type: 'postgres',
-    url: resolvedUrl,
+    url: rawUrl,
     entities: [__dirname + '/../**/*.entity{.ts,.js}', ...extraEntities],
     migrations: [__dirname + '/../../../../tools/migrations/**/*.{ts,js}'],
     synchronize: false,
     logging: nodeEnv === 'development',
-    ssl: sslDisabled ? false : (nodeEnv === 'production' ? { rejectUnauthorized: false } : false),
+    ssl: process.env.DB_SSL === 'false' ? false : (nodeEnv === 'production' ? { rejectUnauthorized: false } : false),
     extra: {
       max: 20,
       idleTimeoutMillis: 30000,
