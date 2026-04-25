@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:-}"
 REGION="${REGION:-asia-south1}"
 REPOSITORY="${REPOSITORY:-shoposphere}"
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 DB_INSTANCE="${DB_INSTANCE:-shoposphere-sql}"
 DB_NAME="${DB_NAME:-shoposphere}"
 DB_USER="${DB_USER:-shoposphere}"
@@ -58,7 +59,7 @@ gcloud artifacts repositories create "${REPOSITORY}" \
 echo "Building container images with Cloud Build..."
 gcloud builds submit \
   --config cloudbuild.gcp.yaml \
-  --substitutions "_REGION=${REGION},_REPOSITORY=${REPOSITORY}" \
+  --substitutions "_REGION=${REGION},_REPOSITORY=${REPOSITORY},_TAG=${IMAGE_TAG}" \
   --project "${PROJECT_ID}" \
   .
 
@@ -69,7 +70,7 @@ deploy_service() {
   local extra_env="${4:-}"
 
   gcloud run deploy "${name}" \
-    --image "${IMAGE_BASE}/${image_name}:$(git rev-parse --short HEAD)" \
+    --image "${IMAGE_BASE}/${image_name}:${IMAGE_TAG}" \
     --region "${REGION}" \
     --platform managed \
     --allow-unauthenticated \
@@ -96,7 +97,7 @@ REPORT_URL="$(gcloud run services describe report-service --region "${REGION}" -
 
 echo "Deploying frontend..."
 gcloud run deploy frontend \
-  --image "${IMAGE_BASE}/frontend:$(git rev-parse --short HEAD)" \
+  --image "${IMAGE_BASE}/frontend:${IMAGE_TAG}" \
   --region "${REGION}" \
   --platform managed \
   --allow-unauthenticated \
